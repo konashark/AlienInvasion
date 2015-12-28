@@ -6,20 +6,19 @@ var spriteList;
 var shipSprite;
 var alienSprites = [];
 var laserStuff = [];
-var explSprites = [];
 var KEYSTATE = [];
 var KEY = {LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13, SPACE: 32, X: 88, Z: 90 };
 var ctx;    // Main canvas context
 var path = [];
 var stars = [];
-var NUM_LASERS = 8;
+var NUM_LASERS = 11;
 var NUM_ALIENS = 8;
 var NUM_STARS = 100;
 var PLAYFIELD_WIDTH = 480;
 var PLAYFIELD_HEIGHT = 640;
 var firing = false;
 var firingThrottle = 1;
-var FIRING_SPEED = 8;
+var FIRING_SPEED = 5;
 
 /*************************************************/
 function initApp () {
@@ -104,7 +103,7 @@ function fireLaser() {
             for (var i = 0; i < NUM_LASERS; i++) {
                 if (laserStuff[i].sprite.active == false) {
                     laserStuff[i].laserSound.play();
-                    laserStuff[i].sprite.setPosition(shipSprite.x + 16, shipSprite.y);
+                    laserStuff[i].sprite.setPosition(shipSprite.x + 16, shipSprite.y - 16);
                     laserStuff[i].sprite.active = true;
                     break;
                 }
@@ -146,7 +145,7 @@ function loadResources(callback) {
             laserStuff[i].sprite = spriteList.newSprite({
                 id: 'laser' + i,
                 image: laserImg,
-                width: 2, height: 8,
+                width: 3, height: 16,
                 active: false
             });
             laserStuff[i].laserSound = new Audio('resources/laser.mp3');
