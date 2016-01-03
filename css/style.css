@@ -1,12 +1,17 @@
+@font-face {
+    font-family: ocr;
+    src: url('../resources/OCR.otf');
+}
+
 #screen {
     position: fixed;
     top: 0px;
     left: 0px;
     width: 100%;
     height: 100%;
-    background-color: #002;
+    background: linear-gradient(to bottom, rgb(0,0,16) 0%,rgb(10,64,196) 50%,rgb(0,0,16) 100%);
     color: lavender;
-    font-family: sans-serif;
+    font-family: ocr;
     font-size: 24px;
 }
 
@@ -19,7 +24,9 @@
     overflow:hidden;
     cursor: none;
     background-color: #035;
+    border: solid 2px black;
 }
+
 #banner {
     position: absolute;
     top: 0px;
@@ -28,7 +35,9 @@
     height: 80px;
     cursor: none;
     text-align: center;
+    padding-top: 20px;
 }
+
 #canvas {
     position: absolute;
     top: 80px;

@@ -1,24 +1,50 @@
-console.log("Javascript is alive!");
+console.log("Alien Invasion is starting!");
+console.log("Source code licensed for use by owners of the book 'Javascript Rockstar Vol 1'");
+console.log("www.wildlizardranch.com/jsrockstar/vol1");
+console.log("Copyright (c) 2016 Jeffrey Sprague");
 
 window.addEventListener("load", initApp, false);
 
-var spriteList;
-var shipSprite;
-var alienSprites = [];
-var laserStuff = [];
-var KEYSTATE = [];
-var KEY = {LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13, SPACE: 32, X: 88, Z: 90 };
-var ctx;    // Main canvas context
-var path = [];
-var stars = [];
+var KEY = {LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13, P: 80, Q: 81 };
 var NUM_LASERS = 11;
 var NUM_ALIENS = 8;
 var NUM_STARS = 100;
 var PLAYFIELD_WIDTH = 480;
 var PLAYFIELD_HEIGHT = 640;
+var FIRING_SPEED = 5;
+var NUM_SWARMS = 3;
+var NUM_ASTEROIDS = 3;
+var NUM_BACKGROUNDS = 3;
+
+var START_GAME = 0;
+var IN_PLAY = 1;
+var PAUSED = 2;
+var END_GAME = 3;
+var QUIT = 4;
+var gameState = START_GAME;
+
+var framesTilEndOfGame = 0;
+
+var ctx;    // Main canvas context
+var shipImg, shieldImg, laserImg, explosionImg, earthriseImg, nebulaImg;
+var backgroundMode = 0;
+var spriteList;
+var shipSprite;
+var shieldSprite;
+var explosionSprite;
+var stars = [];
+var swarms = [];
+var swarmSpeedBase = 2.5;
+var asteroidStuff = [];
+var asteroidSpeedBase = 1;
+var laserStuff = [];
 var firing = false;
 var firingThrottle = 1;
-var FIRING_SPEED = 5;
+
+var score = 0;
+var distance = 0;
+var shieldPower = 100;
+var mousePosX;
 
 /*************************************************/
 function initApp () {
@@ -31,46 +57,31 @@ function initApp () {
     ctx = canvas.getContext("2d");
     ctx.fillStyle = "#000000";
     ctx.fillRect(0,0,PLAYFIELD_HEIGHT,PLAYFIELD_WIDTH);
-    ctx.font = "40px _sans";
-    ctx.fillStyle = "#00AA00";
+    ctx.font = "20px ocr";
 
     document.addEventListener("keydown", processKeyDown);
-    document.addEventListener("keyup", processKeyUp);
 
     createStars();
 
-    path = createPath(4);
+    // create swarms
+    for (var i = 0; i < NUM_SWARMS; i++) {
+        swarms[i] = createSwarm(i);
+    }
 
-    loadResources(function() {
+    loadImages(function() {
         gameLoop();
     });
 
     var element = document.getElementById('canvas');
     element.onmousemove = function(e) {
-        if (shipSprite.active) {
-            if (e.offsetX < PLAYFIELD_WIDTH - 35) {
-                shipSprite.x = e.offsetX;
-            }
-        }
+        mousePosX = e.offsetX == undefined ? e.layerX : e.offsetX;  // FireFox uses 'layer', Chrome & Safari use 'offset'
     };
-/*
-    element.onmousedown = function(e) {
-        if (shipSprite.active) {
-            for (var i = 0; i < NUM_LASERS; i++) {
-                if (laserStuff[i].sprite.active == false) {
-                    laserStuff[i].laserSound.play();
-                    laserStuff[i].sprite.setPosition(shipSprite.x + 16, shipSprite.y);
-                    laserStuff[i].sprite.active = true;
-                    break;
-                }
-            }
-        }
-    };
- */
+
     element.onmousedown = function(e) {
         firing = true;
         firingThrottle = 1;
     };
+
     element.onmouseup = function(e) {
         firing = false;
         firingThrottle = 1;
@@ -79,11 +90,35 @@ function initApp () {
 
 /*************************************************/
 function processKeyDown(ev) {
-    KEYSTATE[ev.keyCode] = true;
 
     switch (ev.keyCode)
     {
-        case KEY.SPACE:
+        case KEY.Q:
+            gameState = QUIT;
+            break;
+
+        case KEY.P:
+            if (gameState == IN_PLAY) {
+                gameState = PAUSED;
+            } else {
+                if (gameState == PAUSED) {
+                    gameState = IN_PLAY;
+                    gameLoop();
+                }
+            }
+            break;
+
+        case KEY.ENTER:
+            if (gameState == START_GAME) {
+                gameState = IN_PLAY;
+                resetGame();
+                shipSprite.show();
+            } else {
+                if (gameState == END_GAME) {
+                    gameState = START_GAME;
+                    resetGame();
+                }
+            }
             break;
 
         default:
@@ -92,24 +127,59 @@ function processKeyDown(ev) {
 }
 
 /*************************************************/
-function processKeyUp(ev) {
-    KEYSTATE[ev.keyCode] = false;
+function resetGame() {
+    var i;
+    firing = false;
+    score = 0;
+    distance = 0;
+    swarmSpeedBase = 2.5;
+    asteroidSpeedBase = 1;
+    shieldPower = 100;
+
+    // Reset swarms and asteroids
+    for (i = 0; i < NUM_SWARMS; i++) {
+        resetSwarm(i);
+    }
+    for (i = 0; i < NUM_ASTEROIDS; i++) {
+        resetAsteroid(asteroidStuff[i]);
+    }
 }
 
 /*************************************************/
-function fireLaser() {
-    if (shipSprite.active) {
-        if (--firingThrottle < 1) {
-            for (var i = 0; i < NUM_LASERS; i++) {
-                if (laserStuff[i].sprite.active == false) {
-                    laserStuff[i].laserSound.play();
-                    laserStuff[i].sprite.setPosition(shipSprite.x + 16, shipSprite.y - 16);
-                    laserStuff[i].sprite.active = true;
-                    break;
-                }
-            }
-            firingThrottle = FIRING_SPEED;
+function createSwarm (index) {
+    var swarm = {
+        active: false,
+        pathIndex: 0,
+        path: createPath(swarmSpeedBase + index),
+        numAlive: NUM_ALIENS,
+        sprites: []
+    };
+
+    swarm.image = jgl.newImage('resources/alien'+index+'.png', function() {
+        for (var i = 0; i < NUM_ALIENS; i++) {
+            swarm.sprites[i] = spriteList.newSprite({
+                image: swarm.image,
+                x: 0, y: -50,
+                width: 24, height: 24
+            });
         }
+    });
+
+    return swarm;
+}
+
+/*************************************************/
+function resetSwarm (index) {
+    swarms[index].pathIndex = 0;
+    if (gameState == IN_PLAY && swarmSpeedBase < 7.25) {
+        swarmSpeedBase += .25;
+    }
+    swarms[index].path = createPath(swarmSpeedBase + index);
+    swarms[index].numAlive = NUM_ALIENS;
+    for (var i = 0; i < NUM_ALIENS; i++) {
+        swarms[index].sprites[i].show();
+        swarms[index].sprites[i].x = 0;
+        swarms[index].sprites[i].y = -50;
     }
 }
 
@@ -125,25 +195,53 @@ function createStars() {
 }
 
 /*************************************************/
-function loadResources(callback) {
-    // Load images, sounds, etc.
+function loadImages(callback) {
+    var numLoaded = 0;
+    var numToLoad = 6;
+    var loadComplete = function() {
+        if (++numLoaded == numToLoad) {
+            callback();
+        }
+    };
 
+    var frame, i;
     spriteList = jgl.newSpriteList();
 
-    var shipImg = jgl.newImage('resources/ship.png', function() {
+    shipImg = jgl.newImage('resources/ship.png', function() {
         shipSprite = spriteList.newSprite({
-            id: 'ship',
             image: shipImg,
-            x: 200, y: PLAYFIELD_HEIGHT - 75,
-            width: 34, height: 40
+            x: 200, y: PLAYFIELD_HEIGHT - 60, width: 38, height: 43, center: true,
+            active: false
         });
+        loadComplete();
     });
 
-    var laserImg = jgl.newImage('resources/laser.png', function() {
-        for (var i = 0; i < NUM_LASERS; i++) {
+    shieldImg = jgl.newImage('resources/shield.png', function() {
+        shieldSprite = spriteList.newSprite({
+            image: shieldImg,
+            x: 0, y: 0, width: 72, height: 72, center: true,
+            active: false
+        });
+        loadComplete();
+    });
+
+    asteroidImg = jgl.newImage('resources/asteroid.png', function() {
+        for (i = 0; i < NUM_ASTEROIDS; i++) {
+            sprite = spriteList.newSprite({
+                image: asteroidImg,
+                x: 0, y: 0, width: 64, height: 64, center: true,
+                active: true
+            });
+            asteroidStuff[i] = { sprite: sprite };
+            resetAsteroid(asteroidStuff[i]);
+        }
+        loadComplete();
+    });
+
+    laserImg = jgl.newImage('resources/laser.png', function() {
+        for (i = 0; i < NUM_LASERS; i++) {
             laserStuff[i] = {};
             laserStuff[i].sprite = spriteList.newSprite({
-                id: 'laser' + i,
                 image: laserImg,
                 width: 3, height: 16,
                 active: false
@@ -151,57 +249,95 @@ function loadResources(callback) {
             laserStuff[i].laserSound = new Audio('resources/laser.mp3');
             laserStuff[i].explosionSound = new Audio('resources/crash.mp3');
         }
+        loadComplete();
+    });
 
-        // Example of loading and defining an animated sprite
-        var explosionImg = jgl.newImage("resources/explosion.png", function() {
-            for (var i = 0; i < NUM_LASERS; i++) {
-                sprite = spriteList.newSprite({
-                    id: 'explosion' + i,
-                    width: 88, height: 90,
-                    image: explosionImg,
-                    animate: true,
-                    autoLoop: false,
-                    autoDeactivate: true,
-                    currentFrame: 0,
-                    startFrame: 0,
-                    endFrame: 39,
-                    active: false
-                });
+    // Example of loading and defining an animated sprite
+    explosionImg = jgl.newImage("resources/explosion.png", function() {
+        for (i = 0; i < NUM_LASERS; i++) {
+            sprite = spriteList.newSprite({
+                width: 88, height: 90, center: true,
+                image: explosionImg,
+                animate: true,
+                autoLoop: false,
+                autoDeactivate: true,
+                currentFrame: 0,
+                startFrame: 0,
+                endFrame: 39,
+                active: false
+            });
 
-                // Define animation frames
-                for (var frame = 0; frame < 40; frame++) {
-                    sprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
-                }
-                sprite.setHotSpot(44, 44);
-
-                laserStuff[i].explosionSprite = sprite;
+            // Define animation frames
+            for (frame = 0; frame < 40; frame++) {
+                sprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
             }
+            laserStuff[i].explosionSprite = sprite;
+        }
+
+        explosionSprite = spriteList.newSprite({
+            width: 88, height: 90, scale: 4, center: true,
+            image: explosionImg,
+            animate: true,
+            autoLoop: false,
+            autoDeactivate: true,
+            currentFrame: 0,
+            startFrame: 0,
+            endFrame: 39,
+            active: false
+        });
+
+        // Define animation frames
+        for (frame = 0; frame < 40; frame++) {
+            explosionSprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
+        }
+        loadComplete();
+    });
+
+    earthriseImg = jgl.newImage('resources/earthrise.png', function() {
+        nebulaImg = jgl.newImage('resources/nebula.png', function() {
+            loadComplete();
         });
     });
-
-    var alienImg = jgl.newImage('resources/alien1.png', function() {
-        for (var i = 0; i < NUM_ALIENS; i++) {
-            alienSprites[i] = spriteList.newSprite({
-                id: 'alien' + i,
-                image: alienImg,
-                x: -50, y: 0,
-                width: 24, height: 24
-            });
-        }
-        callback(); // resume initialization
-    });
-
 }
 
 /*************************************************/
-function doExplosion(alien) {
-    laserStuff[alien].explosionSound.play();
-    var sprite = laserStuff[alien].explosionSprite;
-    sprite.setRotation(jgl.random(360));
+function fireLaser() {
+    if (shipSprite.active) {
+        if (--firingThrottle < 1) {
+            for (var i = 0; i < NUM_LASERS; i++) {
+                if (laserStuff[i].sprite.active == false) {
+                    laserStuff[i].laserSound.play();
+                    laserStuff[i].sprite.setPosition(shipSprite.x - 1, shipSprite.y - 34);
+                    laserStuff[i].sprite.show();
+                    break;
+                }
+            }
+            firingThrottle = FIRING_SPEED;
+        }
+    }
+}
+
+/*************************************************/
+function doExplosion(laserIndex, alien) {
+    laserStuff[laserIndex].explosionSound.play();
+    var sprite = laserStuff[laserIndex].explosionSprite;
+    sprite.setRotation(Math.floor(Math.random() * 360));
     sprite.setAnimActions(true);
-    sprite.setPosition(alienSprites[alien].x, alienSprites[alien].y);
+    sprite.setPosition(alien.x, alien.y);
     sprite.setCurrentFrame(0);
     sprite.show();
+
+    score += 10;
+}
+
+/*************************************************/
+function shipExplodes() {
+    explosionSprite.setAnimActions(true);
+    explosionSprite.setCurrentFrame(0);
+    explosionSprite.x = shipSprite.x;
+    explosionSprite.y = shipSprite.y;
+    explosionSprite.show();
+    shipSprite.hide();
 }
 
 /*************************************************/
@@ -243,69 +379,245 @@ function createPath(speed) {
 }
 
 /*************************************************/
-var pathIndex = 0;
 function gameLoop() {
-    if (++pathIndex < path.length + 100) {
-        window.requestAnimationFrame(gameLoop);
+/*************************************************/
 
-        var i;
+    if (gameState == QUIT || gameState == PAUSED) {
+        return;
+    }
 
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0,0,PLAYFIELD_WIDTH,PLAYFIELD_HEIGHT);
+    shieldSprite.hide();
 
-        for (i = 0; i < NUM_STARS; i++) {
-            ctx.fillStyle = stars[i].bright;
-            ctx.fillRect(stars[i].x, stars[i].y, 2, 2);
-            if ((stars[i].y += 4) > PLAYFIELD_HEIGHT) {
-                stars[i].x = 10 + Math.random() * PLAYFIELD_WIDTH - 20;
-                stars[i].y = 0 - Math.random() * 10;
-            }
+    // Recompose screen elements, from bottom-most layer to top-most
+    clearScreen();
+    updateSwarms();
+    updateLasers();
+    updateAsteroids();
+    updateShip();
+
+    spriteList.drawSprites(ctx);
+    updateStatus();
+
+    if (framesTilEndOfGame) {
+        if (--framesTilEndOfGame == 0) {
+            gameState = END_GAME;
         }
+    }
 
-        // Update alien sprites
-        for (i = 0; i < NUM_ALIENS; i++) {
-            if (alienSprites[i].active) {
-                instanceIndex = pathIndex - (i * 10);
-                if (instanceIndex >= 0 && instanceIndex < path.length) {
-                    var point = path[pathIndex- (i * 10)];
-                    alienSprites[i].setPosition(point.x, point.y);
-                    alienSprites[i].setRotation(point.rot);
+    if (gameState == START_GAME) {
+        startGameOverlay();
+    }
+
+    if (gameState == END_GAME) {
+        endGameOverlay();
+    }
+
+    window.requestAnimationFrame(gameLoop);
+
+}
+
+/*************************************************/
+function clearScreen() {
+    // Every 1000 frames, change te background
+    backgroundMode = Math.floor(distance / 1000) % NUM_BACKGROUNDS;
+
+    switch (backgroundMode) {
+        case 0:     // starfield
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT);
+            updateStars();
+            break;
+
+        case 1:
+            ctx.drawImage(earthriseImg, 0, 0);
+            break;
+
+        case 2:
+            ctx.drawImage(nebulaImg, 0, 0);
+            break;
+    }
+}
+
+/*************************************************/
+function updateStars() {
+    var i;
+    for (i = 0; i < NUM_STARS; i++) {
+        ctx.fillStyle = stars[i].bright;
+        ctx.fillRect(stars[i].x, stars[i].y, 2, 2);
+        if ((stars[i].y += 4) > PLAYFIELD_HEIGHT) {
+            stars[i].x = 10 + Math.random() * PLAYFIELD_WIDTH - 20;
+            stars[i].y = 0 - Math.random() * 10;
+        }
+    }
+}
+
+/*************************************************/
+function updateShip() {
+    if (shipSprite.active) {
+        if (mousePosX < PLAYFIELD_WIDTH - 35) {
+            shipSprite.x = mousePosX + 17;
+        }
+        if (didCollideWithAlien(shipSprite)) {
+            raiseShields();
+        }
+        distance++;
+    }
+}
+
+/*************************************************/
+function updateSwarms() {
+    var swarmIndex, alienIndex;
+    for (swarmIndex = 0; swarmIndex < NUM_SWARMS; swarmIndex++) {
+        var swarm = swarms[swarmIndex];
+        for (alienIndex = 0; alienIndex < NUM_ALIENS; alienIndex++) {
+            var sprite = swarm.sprites[alienIndex];
+            if (sprite.active) {
+                var instanceIndex = swarm.pathIndex - (alienIndex * 10);
+                if (instanceIndex >= 0 && instanceIndex < swarm.path.length) {
+                    var point = swarm.path[swarm.pathIndex - (alienIndex * 10)];
+                    sprite.setPosition(point.x, point.y);
+                    sprite.setRotation(point.rot);
                 }
             }
         }
+        swarm.pathIndex++;
+        if (swarm.pathIndex > swarm.path.length + 100) {
+            resetSwarm(swarmIndex);
+        }
+    }
+}
 
-        // Update laser sprites
-        for (i = 0; i < NUM_LASERS; i++) {
-            var laser = laserStuff[i].sprite;
-            if (laser.active) {
-                laser.y -= 12;
-                if (laser.y < -8) {
-                    laser.active = false;
-                } else {
-                    for (var alien = 0; alien < NUM_ALIENS; alien++) {
-                        if (alienSprites[alien].active) {
-                            if (spriteList.collision(laser, alienSprites[alien], 0, false)) {
-                                doExplosion(alien);
-                                alienSprites[alien].active = false;
-                                laser.active = false;
-                            }
-                        }
+/*************************************************/
+function didCollideWithAlien(sprite) {
+    var swarmIndex, alienIndex;
+    for (swarmIndex = 0; swarmIndex < NUM_SWARMS; swarmIndex++) {
+        var swarm = swarms[swarmIndex];
+        for (alienIndex = 0; alienIndex < NUM_ALIENS; alienIndex++) {
+            var alien = swarm.sprites[alienIndex];
+            if (alien.active) {
+                if(spriteList.collision(sprite, alien, 0, false)) {
+                    return alien;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/*************************************************/
+function updateLasers() {
+    var laserIndex;
+    for (laserIndex = 0; laserIndex < NUM_LASERS; laserIndex++) {
+        var laser = laserStuff[laserIndex].sprite;
+        if (laser.active) {
+            laser.y -= 12;
+            if (laser.y < -8) {
+                laser.hide();
+            } else {
+                var alienSpriteHit = didCollideWithAlien(laser);
+                if (alienSpriteHit) {
+                    doExplosion(laserIndex, alienSpriteHit);
+                    alienSpriteHit.hide();
+                    laser.hide();
+                }
+                for (var i = 0; i < NUM_ASTEROIDS; i++) {
+                    if(spriteList.collision(laser, asteroidStuff[i].sprite, 4, false)) {
+                        laser.hide();
                     }
                 }
             }
         }
+    }
 
-        if (firing) {
-            fireLaser();
-        }
-
-        // Redraw sprites
-        spriteList.drawSprites(ctx);
-
-        // Draw images
-        //ctx.drawImage(jet, 0, 0);
+    if (firing) {
+        fireLaser();
     } else {
-        console.log('Done!');
+        if (shipSprite.active) {
+            score++;
+        }
     }
 }
+
+/*************************************************/
+function resetAsteroid(asteroid) {
+    asteroid.y = -50 - Math.random() * 200;
+    asteroid.x = 20 + Math.floor(Math.random() * (PLAYFIELD_WIDTH - 40));
+    asteroid.speed = asteroidSpeedBase + Math.random() * 2;
+    if (gameState == IN_PLAY && asteroidSpeedBase < 6) {
+        asteroidSpeedBase += .1;
+    }
+    asteroid.rot = Math.floor(Math.random() * 360);
+    asteroid.rotSpeed = Math.random() * 3;
+    asteroid.sprite.show();
+}
+
+/*************************************************/
+function updateAsteroids() {
+    var asteroidIndex;
+    for (asteroidIndex = 0; asteroidIndex < NUM_ASTEROIDS; asteroidIndex++) {
+        var asteroid = asteroidStuff[asteroidIndex];
+        if (asteroid.sprite.active) {
+            asteroid.y += asteroid.speed;
+            asteroid.rot += asteroid.rotSpeed;
+            if (asteroid.rot > 360) {
+                asteroid.rot -= 360;
+            }
+            asteroid.sprite.setPosition(asteroid.x, asteroid.y);
+            asteroid.sprite.setRotation(asteroid.rot);
+            if (asteroid.y > PLAYFIELD_HEIGHT + 50) {
+                resetAsteroid(asteroid);
+            } else {
+                if(spriteList.collision(shipSprite, asteroid.sprite, 4, false)) {
+                    raiseShields();
+                }
+            }
+        }
+    }
+}
+
+/*************************************************/
+function updateStatus() {
+    var i;
+    ctx.fillStyle = "#080";
+    ctx.fillText('SCORE: ' + score, 20, 30);
+    ctx.fillText('DIST: ' + distance, PLAYFIELD_WIDTH - 170, 30);
+}
+
+/*************************************************/
+function raiseShields() {
+    shieldPower -= Math.floor(2 + Math.random() * 2.5);
+    if (shieldPower < 0) {
+        shieldPower = 0;
+        shipExplodes();
+        framesTilEndOfGame = 60;
+    }
+    shieldSprite.x = shipSprite.x;
+    shieldSprite.y = shipSprite.y;
+    shieldSprite.show();
+
+    ctx.fillStyle = "#080";
+    ctx.fillText(shieldPower + '%', shieldSprite.x + 40, shieldSprite.y - 10);
+}
+
+/*************************************************/
+function startGameOverlay() {
+    ctx.fillStyle = "#FC0";
+    ctx.font = "40px ocr";
+    ctx.fillText('INVASION!', PLAYFIELD_WIDTH / 2 - 127, PLAYFIELD_HEIGHT / 3);
+    ctx.fillStyle = "#080";
+    ctx.font = "20px ocr";
+    ctx.fillText('PRESS ENTER TO START', PLAYFIELD_WIDTH / 2 - 142, PLAYFIELD_HEIGHT / 3 + 40);
+}
+
+/*************************************************/
+function endGameOverlay() {
+    ctx.fillStyle = "#FC0";
+    ctx.font = "40px ocr";
+    ctx.fillText('GAME OVER', PLAYFIELD_WIDTH / 2 - 130, PLAYFIELD_HEIGHT / 3);
+    ctx.fillStyle = "#C90";
+    ctx.font = "20px ocr";
+    ctx.fillText('PRESS ENTER TO RESTART', PLAYFIELD_WIDTH / 2 - 155, PLAYFIELD_HEIGHT / 3 + 40);
+}
+
+
 
