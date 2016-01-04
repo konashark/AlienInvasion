@@ -52,7 +52,7 @@ var swarmSpeedBase = 2.5;
 var asteroidStuff = [];
 var asteroidSpeedBase = 1;
 var laserStuff = [];
-var firing = false;
+var firing = isTouchDevice;
 var firingThrottle = 1;
 var framesTilEndOfGame = 0;
 
@@ -82,7 +82,8 @@ function initApp () {
 
     // Declare event listeners for mouse click, release, and move
     var element = document.getElementById('canvas');
-    element.onmousemove = mouseMove;
+    element.ontouchmove = mouseMove;    // tablets and phones
+    element.onmousemove = mouseMove;    // desktop browser
     element.onmousedown = mouseDown;
     element.onmouseup = mouseUp;
 }
@@ -212,7 +213,7 @@ function createStars() {
 
 /*************************************************/
 function loadImages(callback) {
-    var numToLoad = 6;
+    var numToLoad = 5;
     var loadComplete = function() {
         if (--numToLoad == 0) {
             callback();
@@ -264,14 +265,31 @@ function loadImages(callback) {
             laserStuff[i].explosionSound = new Audio('resources/crash.mp3');
         }
         clickSound = new Audio('resources/laser.mp3');
-        loadComplete();
-    });
 
-    // Example of loading and defining an animated sprite
-    explosionImg = jgl.newImage("resources/explosion.png", function() {
-        for (i = 0; i < NUM_LASERS; i++) {
-            sprite = spriteList.newSprite({
-                width: 88, height: 90, center: true,
+        // Example of loading and defining an animated sprite
+        explosionImg = jgl.newImage("resources/explosion.png", function() {
+            for (i = 0; i < NUM_LASERS; i++) {
+                sprite = spriteList.newSprite({
+                    width: 88, height: 90, center: true,
+                    image: explosionImg,
+                    animate: true,
+                    autoLoop: false,
+                    autoDeactivate: true,
+                    currentFrame: 0,
+                    startFrame: 0,
+                    endFrame: 39,
+                    active: false
+                });
+
+                // Define animation frames
+                for (frame = 0; frame < 40; frame++) {
+                    sprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
+                }
+                laserStuff[i].explosionSprite = sprite;
+            }
+
+            explosionSprite = spriteList.newSprite({
+                width: 88, height: 90, scale: 4, center: true,
                 image: explosionImg,
                 animate: true,
                 autoLoop: false,
@@ -284,30 +302,12 @@ function loadImages(callback) {
 
             // Define animation frames
             for (frame = 0; frame < 40; frame++) {
-                sprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
+                explosionSprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
             }
-            laserStuff[i].explosionSprite = sprite;
-        }
+            explosionSound = new Audio('resources/crash.mp3');
 
-        explosionSprite = spriteList.newSprite({
-            width: 88, height: 90, scale: 4, center: true,
-            image: explosionImg,
-            animate: true,
-            autoLoop: false,
-            autoDeactivate: true,
-            currentFrame: 0,
-            startFrame: 0,
-            endFrame: 39,
-            active: false
+            loadComplete();
         });
-
-        // Define animation frames
-        for (frame = 0; frame < 40; frame++) {
-            explosionSprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
-        }
-        explosionSound = new Audio('resources/crash.mp3');
-
-        loadComplete();
     });
 
     earthriseImg = jgl.newImage('resources/earthrise.png', function() {
