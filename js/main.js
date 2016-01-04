@@ -1,11 +1,19 @@
+// Alien Invasion!
+// Copyright (c) 2016 by Jeffrey Sprague
+// See the accompanying book for thorough, step-by-step explanation of how this application works.
+// This source code is intended for educational purposes for use by owners of the accompanying book. Derivitive works
+// that are significantly modified may be used for any reasonable purpose. Duplicate or lightly modified versions of
+// this code may not be distributed or sold without permission from the author.
+
 console.log("Alien Invasion is starting!");
 console.log("Source code licensed for use by owners of the book 'Javascript Rockstar Vol 1'");
 console.log("www.wildlizardranch.com/jsrockstar/vol1");
 console.log("Copyright (c) 2016 Jeffrey Sprague");
 
 window.addEventListener("load", initApp, false);
+var isTouchDevice = 'ontouchstart' in document.documentElement;
 
-var KEY = {LEFT: 37, RIGHT: 39, UP: 38, DOWN: 40, ENTER: 13, P: 80, Q: 81 };
+// Configuration options that don't change during application lifecycle
 var NUM_LASERS = 11;
 var NUM_ALIENS = 8;
 var NUM_STARS = 100;
@@ -16,6 +24,7 @@ var NUM_SWARMS = 3;
 var NUM_ASTEROIDS = 3;
 var NUM_BACKGROUNDS = 3;
 
+// Game State
 var START_GAME = 0;
 var IN_PLAY = 1;
 var PAUSED = 2;
@@ -23,7 +32,10 @@ var END_GAME = 3;
 var QUIT = 4;
 var gameState = START_GAME;
 
-var framesTilEndOfGame = 0;
+var score = 0;
+var distance = 0;
+var shieldPower = 100;
+var mousePosX;
 
 var ctx;    // Main canvas context
 var shipImg, shieldImg, laserImg, explosionImg, earthriseImg, nebulaImg;
@@ -32,6 +44,8 @@ var spriteList;
 var shipSprite;
 var shieldSprite;
 var explosionSprite;
+var explosionSound;
+var clickSound;
 var stars = [];
 var swarms = [];
 var swarmSpeedBase = 2.5;
@@ -40,24 +54,18 @@ var asteroidSpeedBase = 1;
 var laserStuff = [];
 var firing = false;
 var firingThrottle = 1;
-
-var score = 0;
-var distance = 0;
-var shieldPower = 100;
-var mousePosX;
+var framesTilEndOfGame = 0;
 
 /*************************************************/
 function initApp () {
     console.log("Initializing...");
 
-    // Initialize the amazing JGL and create a new sprite list
+    // Initialize the JGL sprite utility
     jgl = new Jgl;
+    spriteList = jgl.newSpriteList();
 
     var canvas = document.getElementById("canvas");
     ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0,0,PLAYFIELD_HEIGHT,PLAYFIELD_WIDTH);
-    ctx.font = "20px ocr";
 
     document.addEventListener("keydown", processKeyDown);
 
@@ -69,54 +77,62 @@ function initApp () {
     }
 
     loadImages(function() {
-        gameLoop();
+        gameLoop(); // Kick off the main animation loop once the images are loaded
     });
 
+    // Declare event listeners for mouse click, release, and move
     var element = document.getElementById('canvas');
-    element.onmousemove = function(e) {
-        mousePosX = e.offsetX == undefined ? e.layerX : e.offsetX;  // FireFox uses 'layer', Chrome & Safari use 'offset'
-    };
+    element.onmousemove = mouseMove;
+    element.onmousedown = mouseDown;
+    element.onmouseup = mouseUp;
+}
 
-    element.onmousedown = function(e) {
+/*************************************************/
+function mouseDown() {
+    if (gameState == START_GAME) {
+        gameState = IN_PLAY;
+        clickSound.play();
+        resetGame();
+        shipSprite.show();
+    } else if (gameState == END_GAME){
+        gameState = START_GAME;
+        clickSound.play();
+        resetGame();
+    } else {
         firing = true;
         firingThrottle = 1;
-    };
+    }
+}
 
-    element.onmouseup = function(e) {
+/*************************************************/
+function mouseUp() {
+    // On PC, stop firing. On touch-based devices, do not stop firing while the game is in play
+    if (isTouchDevice == false) {
         firing = false;
         firingThrottle = 1;
-    };
+    }
+}
+
+/*************************************************/
+function mouseMove(e) {
+    mousePosX = e.offsetX == undefined ? e.layerX : e.offsetX;  // FireFox uses 'layer', Chrome & Safari use 'offset'
 }
 
 /*************************************************/
 function processKeyDown(ev) {
-
     switch (ev.keyCode)
     {
-        case KEY.Q:
+        case 81:     // 'Q' key
             gameState = QUIT;
             break;
 
-        case KEY.P:
+        case 80:    // 'P' key
             if (gameState == IN_PLAY) {
                 gameState = PAUSED;
             } else {
                 if (gameState == PAUSED) {
                     gameState = IN_PLAY;
                     gameLoop();
-                }
-            }
-            break;
-
-        case KEY.ENTER:
-            if (gameState == START_GAME) {
-                gameState = IN_PLAY;
-                resetGame();
-                shipSprite.show();
-            } else {
-                if (gameState == END_GAME) {
-                    gameState = START_GAME;
-                    resetGame();
                 }
             }
             break;
@@ -196,16 +212,14 @@ function createStars() {
 
 /*************************************************/
 function loadImages(callback) {
-    var numLoaded = 0;
     var numToLoad = 6;
     var loadComplete = function() {
-        if (++numLoaded == numToLoad) {
+        if (--numToLoad == 0) {
             callback();
         }
     };
 
     var frame, i;
-    spriteList = jgl.newSpriteList();
 
     shipImg = jgl.newImage('resources/ship.png', function() {
         shipSprite = spriteList.newSprite({
@@ -249,6 +263,7 @@ function loadImages(callback) {
             laserStuff[i].laserSound = new Audio('resources/laser.mp3');
             laserStuff[i].explosionSound = new Audio('resources/crash.mp3');
         }
+        clickSound = new Audio('resources/laser.mp3');
         loadComplete();
     });
 
@@ -290,6 +305,8 @@ function loadImages(callback) {
         for (frame = 0; frame < 40; frame++) {
             explosionSprite.setAnimFrame(frame, explosionImg, frame * 88, 0, 88, 90);
         }
+        explosionSound = new Audio('resources/crash.mp3');
+
         loadComplete();
     });
 
@@ -337,6 +354,7 @@ function shipExplodes() {
     explosionSprite.x = shipSprite.x;
     explosionSprite.y = shipSprite.y;
     explosionSprite.show();
+    explosionSound.play();
     shipSprite.hide();
 }
 
@@ -345,7 +363,7 @@ function createPath(speed) {
     var setVector = function() {
         return ( {
             rotationTarget: 135 + Math.floor(Math.random() * 90),
-            length: 40 + Math.floor(Math.random() * 100),
+            length: 40 + Math.floor(Math.random() * 100),   // number of frames to stay at same angle before making a change
             rotateDir: Math.random() > .5 ? 1 : -1
         })
     };
@@ -356,12 +374,14 @@ function createPath(speed) {
     var vector = setVector();
     var currentRotation = vector.rotationTarget;
 
+    // Keeping adding to the path until the path goes off the bottom of the screen
     while (y < PLAYFIELD_HEIGHT + 10) {
         if (Math.abs(currentRotation - vector.rotationTarget) > (speed -1 )) {
             currentRotation += ((speed - 1) * vector.rotateDir);
-            if (currentRotation > 359) { currentRotation = 0 };
-            if (currentRotation < 0) { currentRotation = 359 };
+            if (currentRotation > 359) { currentRotation = 0; }
+            if (currentRotation < 0) { currentRotation = 359; }
         } else {
+            // See if it's time to change to a new angle
             vector.length -= speed;
             if (vector.length < 0) {
                 vector = setVector();
@@ -382,13 +402,10 @@ function createPath(speed) {
 function gameLoop() {
 /*************************************************/
 
-    if (gameState == QUIT || gameState == PAUSED) {
-        return;
-    }
-
-    shieldSprite.hide();
+    if (gameState == QUIT || gameState == PAUSED) { return; }
 
     // Recompose screen elements, from bottom-most layer to top-most
+    shieldSprite.hide();
     clearScreen();
     updateSwarms();
     updateLasers();
@@ -398,6 +415,7 @@ function gameLoop() {
     spriteList.drawSprites(ctx);
     updateStatus();
 
+    // Delay exiting the game for a little while after you explode
     if (framesTilEndOfGame) {
         if (--framesTilEndOfGame == 0) {
             gameState = END_GAME;
@@ -413,12 +431,11 @@ function gameLoop() {
     }
 
     window.requestAnimationFrame(gameLoop);
-
 }
 
 /*************************************************/
 function clearScreen() {
-    // Every 1000 frames, change te background
+    // Every 1000 frames, change the background
     backgroundMode = Math.floor(distance / 1000) % NUM_BACKGROUNDS;
 
     switch (backgroundMode) {
@@ -577,7 +594,6 @@ function updateAsteroids() {
 
 /*************************************************/
 function updateStatus() {
-    var i;
     ctx.fillStyle = "#080";
     ctx.fillText('SCORE: ' + score, 20, 30);
     ctx.fillText('DIST: ' + distance, PLAYFIELD_WIDTH - 170, 30);
@@ -589,7 +605,7 @@ function raiseShields() {
     if (shieldPower < 0) {
         shieldPower = 0;
         shipExplodes();
-        framesTilEndOfGame = 60;
+        framesTilEndOfGame = 100;
     }
     shieldSprite.x = shipSprite.x;
     shieldSprite.y = shipSprite.y;
@@ -606,7 +622,7 @@ function startGameOverlay() {
     ctx.fillText('INVASION!', PLAYFIELD_WIDTH / 2 - 127, PLAYFIELD_HEIGHT / 3);
     ctx.fillStyle = "#080";
     ctx.font = "20px ocr";
-    ctx.fillText('PRESS ENTER TO START', PLAYFIELD_WIDTH / 2 - 142, PLAYFIELD_HEIGHT / 3 + 40);
+    ctx.fillText('CLICK TO START', PLAYFIELD_WIDTH / 2 - 105, PLAYFIELD_HEIGHT / 3 + 40);
 }
 
 /*************************************************/
@@ -616,7 +632,7 @@ function endGameOverlay() {
     ctx.fillText('GAME OVER', PLAYFIELD_WIDTH / 2 - 130, PLAYFIELD_HEIGHT / 3);
     ctx.fillStyle = "#C90";
     ctx.font = "20px ocr";
-    ctx.fillText('PRESS ENTER TO RESTART', PLAYFIELD_WIDTH / 2 - 155, PLAYFIELD_HEIGHT / 3 + 40);
+    ctx.fillText('CLICK TO RESTART', PLAYFIELD_WIDTH / 2 - 114, PLAYFIELD_HEIGHT / 3 + 40);
 }
 
 
